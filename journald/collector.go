@@ -6,17 +6,18 @@ import (
 	"log"
 	//"fmt"
 	"os/exec"
+	"io/ioutil"
 )
+
+const DefaultCursorFile = "cursor.current"
 
 type Collector struct {
 	SystemdUnit	string
-	BootId		string
 }
 
-func NewCollector(systemdUnit string, bootId string) *Collector {
+func NewCollector(systemdUnit string) *Collector {
 	return &Collector{
 		SystemdUnit: systemdUnit,
-		BootId: bootId,
 	}
 }
 
@@ -25,20 +26,19 @@ func (c *Collector) GetCmdArgs() []string {
 		"--output",
 		"json",
 		"--follow",
-		"--no-pager",
-		"-u",
+		"--unit",
 		c.SystemdUnit,
 	}
-	//if len(c.BootId) > 0 {
-	//	args = append(args, "-b")
-	//	args = append(args, c.BootId)
-	//}
+	cursor := c.GetCursor()
+	if len(cursor) > 0 {
+		args = append(args, "--after-cursor")
+		args = append(args, cursor)
+	}
 	return args
 }
 
 func (c *Collector) CollectJournal(ch chan JournalEntry) {
 	args := c.GetCmdArgs()
-	log.Printf("%v\n", args)
 	cmd := exec.Command("journalctl", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -53,7 +53,21 @@ func (c *Collector) CollectJournal(ch chan JournalEntry) {
 			// Ignore blank lines
 		} else {
 			ch <- entry
+			c.SaveCursor(entry.Cursor)
 		}
 	}
+}
+
+func (c *Collector) GetCursor() string {
+	contents, err := ioutil.ReadFile(DefaultCursorFile)
+	if err != nil {
+		return ""
+	}
+	return string(contents)
+}
+
+func (c *Collector) SaveCursor(cursor string) error {
+	b := []byte(cursor)
+	return ioutil.WriteFile(DefaultCursorFile, b, 0755)
 }
 
